@@ -16,14 +16,31 @@ enum class GpuMode {
   Fused,   // one scatter pass: one thread per (orbital, grid point), in-cutoff
            // pairs evaluate chi and atomicAdd w*chi^2 straight into the
            // density; V never exists in memory.
+  Tiled,   // one block per (atom, tile): the atom's union bounding box is
+           // walked in kTile^3 sub-tiles, each accumulated in shared memory
+           // with privatized atomics and flushed to global with one
+           // atomicAdd per in-tile point. Only bounding-box points are
+           // visited; the all-pairs r2 tests of the fused path disappear.
+           // Requires orbitals grouped per atom (orbs_per_atom, centers may
+           // differ; the box is a true per-orbital union).
+  TiledShell, // same tiling, but the grouping is per shell: maximal runs of
+           // orbitals sharing both center and r_cut (the s/p/d/f shells of
+           // the synthetic model). Each shell gets its own bounding box, so
+           // tight orbitals stop paying the union-box waste of the flattest
+           // shell in their atom.
 };
+
+// Both entry points take orbs_per_atom only for the Tiled grouping; the
+// other modes ignore it. Tiled paths throw if a group exceeds the
+// staged-tile limit.
 
 struct GpuDensityResult {
   std::vector<double> rho;
   double seconds = 0.0; // device time of the kernel pass(es); upload excluded
 };
 
-GpuDensityResult density_gpu(const Model& m, GpuMode mode);
+GpuDensityResult density_gpu(const Model& m, GpuMode mode,
+                             int orbs_per_atom = 16);
 
 // Timing statistics over repeated full passes; orbitals are uploaded once,
 // one warmup run is excluded.
@@ -35,7 +52,8 @@ struct GpuBenchResult {
   std::vector<double> reps_s; // per-rep device seconds, run order
 };
 
-GpuBenchResult bench_density_gpu(const Model& m, GpuMode mode, int n_reps);
+GpuBenchResult bench_density_gpu(const Model& m, GpuMode mode, int n_reps,
+                                 int orbs_per_atom = 16);
 
 // STREAM-like triad result: c = a + s*b in FP64 with arrays far larger
 // than L2 (512 MiB each). Roofline reference; the spec sheet number is

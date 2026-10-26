@@ -1,5 +1,6 @@
 #include "lcao/model.hpp"
 
+#include <algorithm>
 #include <random>
 
 namespace lcao {
@@ -56,6 +57,52 @@ std::uint64_t count_pairs(const Model& m) {
         }
   }
   return count;
+}
+
+std::uint64_t count_group_box_pairs(const Model& m,
+                                    const std::vector<int>& groups) {
+  const int n = m.grid.n;
+  const double h = m.grid.cell / n;
+  std::uint64_t count = 0;
+  for (size_t gi = 0; gi + 1 < groups.size(); ++gi) {
+    int lo[3] = {n, n, n}, hi[3] = {-1, -1, -1};
+    for (int j = groups[gi]; j < groups[gi + 1]; ++j) {
+      const Orbital& o = m.orbitals[j];
+      const double c[3] = {o.cx, o.cy, o.cz};
+      for (int d = 0; d < 3; ++d) {
+        lo[d] = std::min(lo[d],
+                         std::max(0, static_cast<int>((c[d] - o.r_cut) / h)));
+        hi[d] = std::max(hi[d],
+                         std::min(n - 1, static_cast<int>((c[d] + o.r_cut) / h)));
+      }
+    }
+    std::uint64_t box = 1;
+    for (int d = 0; d < 3; ++d)
+      box *= hi[d] >= lo[d] ? static_cast<std::uint64_t>(hi[d] - lo[d] + 1) : 0;
+    count += box * static_cast<std::uint64_t>(groups[gi + 1] - groups[gi]);
+  }
+  return count;
+}
+
+std::uint64_t count_box_pairs(const Model& m, int orbs_per_atom) {
+  std::vector<int> groups;
+  for (size_t a = 0; a <= m.orbitals.size(); a += orbs_per_atom)
+    groups.push_back(static_cast<int>(a));
+  return count_group_box_pairs(m, groups);
+}
+
+std::vector<int> shell_groups(const Model& m) {
+  std::vector<int> groups = {0};
+  for (size_t i = 1; i <= m.orbitals.size(); ++i) {
+    const Orbital& a = m.orbitals[i - 1];
+    const bool boundary =
+        i == m.orbitals.size() || m.orbitals[i].cx != a.cx ||
+        m.orbitals[i].cy != a.cy || m.orbitals[i].cz != a.cz ||
+        m.orbitals[i].r_cut != a.r_cut;
+    if (boundary)
+      groups.push_back(static_cast<int>(i));
+  }
+  return groups;
 }
 
 } // namespace lcao

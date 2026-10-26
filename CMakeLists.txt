@@ -56,12 +56,15 @@ target_link_libraries(test_cpu_density PRIVATE lcao_core)
 target_compile_options(test_cpu_density PRIVATE -Wall -Wextra)
 add_test(NAME cpu_density COMMAND test_cpu_density)
 
-# Hand-written fused/unfused kernels; no vendor library kernels in the
+set(LCG_TILE_SIDE 8 CACHE STRING "sub-tile side of the tiled density kernels")
+
+# Hand-written fused/unfused/tiled kernels; no vendor library kernels in the
 # measured path.
 add_library(lcao_gpu STATIC src/grid_gpu.cu)
 target_include_directories(lcao_gpu PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(lcao_gpu PUBLIC lcao_core CUDA::cudart)
-target_compile_definitions(lcao_gpu PRIVATE LCG_BUILD_TYPE="${CMAKE_BUILD_TYPE}")
+target_compile_definitions(lcao_gpu PRIVATE LCG_BUILD_TYPE="${CMAKE_BUILD_TYPE}"
+  LCG_TILE_SIDE=${LCG_TILE_SIDE})
 
 add_executable(test_gpu_density tests/test_gpu_density.cpp)
 target_link_libraries(test_gpu_density PRIVATE lcao_gpu)
@@ -72,4 +75,5 @@ add_executable(bench_grid benchmarks/bench_grid.cpp)
 target_link_libraries(bench_grid PRIVATE lcao_gpu)
 target_compile_options(bench_grid PRIVATE -Wall -Wextra)
 target_compile_definitions(bench_grid PRIVATE
-  LCG_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data")
+  LCG_DATA_DIR="${CMAKE_CURRENT_SOURCE_DIR}/data"
+  LCG_TILE_SIDE=${LCG_TILE_SIDE})

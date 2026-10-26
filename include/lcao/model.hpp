@@ -81,4 +81,20 @@ Model make_synthetic_model(int atoms_per_side, int grid_n, std::uint64_t seed);
 // throughput reporting.
 std::uint64_t count_pairs(const Model& m);
 
+// (orbital, grid-point) pairs the tiled GPU path visits: per atom, the
+// union bounding box over its orbitals' cutoffs times orbs_per_atom.
+// Includes the sphere-in-box waste (each orbital re-tests its own r_cut);
+// the difference against count_pairs is the overhead the kernel still pays.
+std::uint64_t count_box_pairs(const Model& m, int orbs_per_atom);
+
+// Shell grouping: offsets of maximal runs of orbitals sharing both center
+// and r_cut (the s/p/d/f shells of the synthetic generator). Front is 0,
+// back is orbitals.size().
+std::vector<int> shell_groups(const Model& m);
+
+// Tiled-visited pairs for an arbitrary grouping (group = index range into
+// the orbital array, one union bounding box per group).
+std::uint64_t count_group_box_pairs(const Model& m,
+                                    const std::vector<int>& groups);
+
 } // namespace lcao

@@ -1,13 +1,17 @@
-// Fused vs unfused density benchmark: grid-size and orbital-count sweeps,
-// FP64, median of N reps with min/max spread, device-side timing, effective
-// GB/s for the unfused slab traffic against a measured STREAM-like triad on
-// the same GPU. JSON out to data/ with raw per-rep timings and
-// device/driver/seed/toolchain metadata.
+// Unfused vs fused vs tiled density benchmark: grid-size and orbital-count
+// sweeps, FP64, median of N reps with min/max spread, device-side timing,
+// effective GB/s for the unfused slab traffic against a measured
+// STREAM-like triad on the same GPU. JSON out to data/ with raw per-rep
+// timings and device/driver/seed/toolchain metadata.
 //
 // Absolute times vary with machine state; report medians and observed
 // spreads.
 
 #include "lcao/grid_gpu.hpp"
+
+#ifndef LCG_TILE_SIDE
+#define LCG_TILE_SIDE 16
+#endif
 
 #include <cmath>
 #include <cstdio>
@@ -27,7 +31,9 @@ struct ConfigEntry {
   int n_grid;
   std::uint64_t pairs_total;
   std::uint64_t pairs_evaluated;
-  lcao::GpuBenchResult unfused, fused;
+  std::uint64_t box_pairs;
+  std::uint64_t shell_box_pairs;
+  lcao::GpuBenchResult unfused, fused, tiled, tiled_shell;
 };
 
 std::vector<int> parse_list(const std::string& s) {
@@ -128,9 +134,9 @@ int main(int argc, char** argv) {
 
     std::printf("median of %d reps (device time), one warmup excluded\n\n",
                 n_reps);
-    std::printf("%5s %6s %7s | %12s %12s | %10s %10s | %8s %8s\n", "grid",
-                "atoms", "orbs", "unfus_ms", "fused_ms", "Mpts/s_u",
-                "Mpts/s_f", "Ge/s_u", "Ge/s_f");
+    std::printf("%5s %6s %7s | %11s %11s %11s %11s | %7s %7s %7s %7s\n",
+                "grid", "atoms", "orbs", "unfus_ms", "fused_ms", "tiled_ms",
+                "tshell_ms", "Ge/s_u", "Ge/s_f", "Ge/s_t", "Ge/s_ts");
 
     std::vector<ConfigEntry> entries;
     for (const int a : atoms_per_side)
@@ -143,24 +149,41 @@ int main(int argc, char** argv) {
                       static_cast<std::uint64_t>(model.orbitals.size()) *
                           lcao::grid_points(model.grid),
                       lcao::count_pairs(model),
+                      lcao::count_box_pairs(model, 16),
+                      lcao::count_group_box_pairs(model,
+                                                  lcao::shell_groups(model)),
                       lcao::bench_density_gpu(model, lcao::GpuMode::Unfused,
                                               n_reps),
                       lcao::bench_density_gpu(model, lcao::GpuMode::Fused,
+                                              n_reps),
+                      lcao::bench_density_gpu(model, lcao::GpuMode::Tiled,
+                                              n_reps),
+                      lcao::bench_density_gpu(model, lcao::GpuMode::TiledShell,
                                               n_reps)};
         std::printf(
-            "%5d %6d %7d | %12.3f %12.3f | %10.1f %10.1f | %8.3f %8.3f\n", g,
-            e.atoms, e.n_orb, e.unfused.median_s * 1e3, e.fused.median_s * 1e3,
-            e.n_grid / e.unfused.median_s / 1e6,
-            e.n_grid / e.fused.median_s / 1e6,
+            "%5d %6d %7d | %11.3f %11.3f %11.3f %11.3f | %7.3f %7.3f %7.3f "
+            "%7.3f\n",
+            g, e.atoms, e.n_orb, e.unfused.median_s * 1e3,
+            e.fused.median_s * 1e3, e.tiled.median_s * 1e3,
+            e.tiled_shell.median_s * 1e3,
             static_cast<double>(e.pairs_evaluated) / e.unfused.median_s / 1e9,
-            static_cast<double>(e.pairs_evaluated) / e.fused.median_s / 1e9);
+            static_cast<double>(e.pairs_evaluated) / e.fused.median_s / 1e9,
+            static_cast<double>(e.pairs_evaluated) / e.tiled.median_s / 1e9,
+            static_cast<double>(e.pairs_evaluated) / e.tiled_shell.median_s /
+                1e9);
         std::printf("      spread ms [min,max]: u [%.3f,%.3f] f "
-                    "[%.3f,%.3f]; in-cutoff pairs %llu / %llu (%.1f%%)\n",
+                    "[%.3f,%.3f] t [%.3f,%.3f] ts [%.3f,%.3f]; in-cutoff "
+                    "%llu / %llu (%.1f%%), atom-box %.1f%%, shell-box "
+                    "%.1f%%\n",
                     e.unfused.min_s * 1e3, e.unfused.max_s * 1e3,
                     e.fused.min_s * 1e3, e.fused.max_s * 1e3,
+                    e.tiled.min_s * 1e3, e.tiled.max_s * 1e3,
+                    e.tiled_shell.min_s * 1e3, e.tiled_shell.max_s * 1e3,
                     static_cast<unsigned long long>(e.pairs_evaluated),
                     static_cast<unsigned long long>(e.pairs_total),
-                    100.0 * e.pairs_evaluated / e.pairs_total);
+                    100.0 * e.pairs_evaluated / e.pairs_total,
+                    100.0 * e.box_pairs / e.pairs_total,
+                    100.0 * e.shell_box_pairs / e.pairs_total);
         entries.push_back(e);
       }
 
@@ -190,6 +213,8 @@ int main(int argc, char** argv) {
       << "  \"toolchain\": \"" << lcao::gpu_toolchain() << "\",\n"
       << "  \"precision\": \"fp64\",\n"
       << "  \"chunk_orbitals\": 32,\n"
+      << "  \"tile_side\": " << LCG_TILE_SIDE << ",\n"
+      << "  \"orbs_per_atom\": 16,\n"
       << "  \"n_reps\": " << n_reps << ",\n"
       << "  \"triad_gbps\": {\"median\": " << triad.median_gbps
       << ", \"min\": " << triad.min_gbps << ", \"max\": " << triad.max_gbps
@@ -204,12 +229,18 @@ int main(int argc, char** argv) {
       f << "    {\"grid_n\": " << e.grid_n << ", \"atoms\": " << e.atoms
         << ", \"orbitals\": " << e.n_orb << ", \"grid_points\": " << e.n_grid
         << ",\n     \"pairs_total\": " << e.pairs_total
-        << ", \"pairs_evaluated\": " << e.pairs_evaluated << ",\n"
+        << ", \"pairs_evaluated\": " << e.pairs_evaluated
+        << ", \"tiled_box_pairs\": " << e.box_pairs
+        << ", \"tiled_shell_box_pairs\": " << e.shell_box_pairs << ",\n"
         << "     \"unfused\": ";
       json_result(f, e.unfused, e.n_grid, e.pairs_evaluated,
                   lcao::unfused_value_bytes(e.n_orb, e.n_grid), 16);
       f << ",\n     \"fused\": ";
       json_result(f, e.fused, e.n_grid, e.pairs_evaluated, 0.0, 16);
+      f << ",\n     \"tiled\": ";
+      json_result(f, e.tiled, e.n_grid, e.pairs_evaluated, 0.0, 16);
+      f << ",\n     \"tiled_shell\": ";
+      json_result(f, e.tiled_shell, e.n_grid, e.pairs_evaluated, 0.0, 16);
       f << "}" << (i + 1 < entries.size() ? "," : "") << "\n";
     }
     f << "  ]\n}\n";

@@ -13,6 +13,16 @@
 // accumulation order is whatever the atomic unit serializes, so fused
 // output differs from any sequential order at FP64 rounding level.
 //
+// Tiled (block per (atom, sub-tile)): each block stages its atom's orbital
+// parameters in shared memory, takes one kTile^3 sub-tile of the atom's
+// union bounding box, accumulates w*chi^2 into a shared tile with
+// privatized atomics, and flushes each nonzero in-grid tile point to global
+// with a single atomicAdd. Only bounding-box points are visited — the
+// fused path's r^2 tests over the full (orbital x grid) product disappear —
+// and global atomics drop by the per-atom orbital count. Shared-memory
+// atomic ordering is nondeterministic, so tiled output agrees with the
+// other paths at rounding level only.
+//
 // Both kernels use the 2D launch (x over grid points, y over orbitals or
 // chunk slots) so neither needs a flat pair index; n_orb stays under the
 // 65535 y-limit at every benchmark size.
@@ -38,8 +48,103 @@
 
 namespace {
 
+#ifndef LCG_TILE_SIDE
+#define LCG_TILE_SIDE 16
+#endif
+
 constexpr int kBlock = 256;
 constexpr int kChunk = 32; // orbitals per V slab in the unfused path
+constexpr int kTile = LCG_TILE_SIDE; // sub-tile side of the tiled paths
+constexpr int kTilePts = kTile * kTile * kTile; // FP64 shared tile
+constexpr int kMaxStagedOrbs = 32; // shared staging limit, per-group params
+
+// Tiled paths: one block per (orbital group, sub-tile). Groups are index
+// ranges into the orbital array: atom groups (fixed orbs_per_atom stride)
+// or shell groups (maximal runs sharing center and r_cut). Each block
+// stages its group's parameters in shared, takes one kTile^3 sub-tile of
+// the group's union bounding box, accumulates w*chi^2 into a shared tile
+// with privatized atomics, and flushes each nonzero in-grid tile point to
+// global with a single atomicAdd.
+__global__ void tiled_scatter_kernel(const lcao::Orbital* __restrict__ orbs,
+                                     const int* __restrict__ group_off,
+                                     const int n, const double h,
+                                     double* __restrict__ rho) {
+  __shared__ double tile[kTilePts];
+  __shared__ lcao::Orbital sorb[kMaxStagedOrbs];
+  __shared__ int s_lo[3], s_nt[3], s_ntiles;
+
+  const int g0 = group_off[blockIdx.y];
+  const int cnt = group_off[blockIdx.y + 1] - g0;
+  const lcao::Orbital* ao = orbs + g0;
+  for (int j = threadIdx.x; j < cnt; j += blockDim.x)
+    sorb[j] = ao[j];
+  __syncthreads();
+
+  if (threadIdx.x == 0) {
+    int lo[3] = {n, n, n}, hi[3] = {-1, -1, -1};
+    for (int j = 0; j < cnt; ++j) {
+      const lcao::Orbital& o = sorb[j];
+      const double c[3] = {o.cx, o.cy, o.cz};
+      for (int d = 0; d < 3; ++d) {
+        lo[d] = min(lo[d], max(0, static_cast<int>((c[d] - o.r_cut) / h)));
+        hi[d] = max(hi[d], min(n - 1, static_cast<int>((c[d] + o.r_cut) / h)));
+      }
+    }
+    int nt = 1;
+    for (int d = 0; d < 3; ++d) {
+      s_lo[d] = lo[d];
+      s_nt[d] = hi[d] >= lo[d] ? (hi[d] - lo[d]) / kTile + 1 : 0;
+      nt *= s_nt[d];
+    }
+    s_ntiles = nt;
+  }
+  __syncthreads();
+  if (static_cast<int>(blockIdx.x) >= s_ntiles)
+    return;
+
+  const int tx = blockIdx.x % s_nt[0];
+  const int ty = (blockIdx.x / s_nt[0]) % s_nt[1];
+  const int tz = blockIdx.x / (s_nt[0] * s_nt[1]);
+  const int bx = s_lo[0] + tx * kTile;
+  const int by = s_lo[1] + ty * kTile;
+  const int bz = s_lo[2] + tz * kTile;
+
+  for (int p = threadIdx.x; p < kTilePts; p += blockDim.x)
+    tile[p] = 0.0;
+  __syncthreads();
+
+  const int npairs = cnt * kTilePts;
+  for (int pair = threadIdx.x; pair < npairs; pair += blockDim.x) {
+    const int j = pair / kTilePts;
+    const int p = pair - j * kTilePts;
+    const int ix = bx + p % kTile;
+    const int iy = by + (p / kTile) % kTile;
+    const int iz = bz + p / (kTile * kTile);
+    if (ix >= n || iy >= n || iz >= n)
+      continue;
+    const lcao::Orbital& o = sorb[j];
+    const double dx = (ix + 0.5) * h - o.cx;
+    const double dy = (iy + 0.5) * h - o.cy;
+    const double dz = (iz + 0.5) * h - o.cz;
+    if (dx * dx + dy * dy + dz * dz > o.r_cut * o.r_cut)
+      continue;
+    const double chi = lcao::orbital_value(o, dx, dy, dz);
+    atomicAdd(&tile[p], o.weight * chi * chi);
+  }
+  __syncthreads();
+
+  for (int p = threadIdx.x; p < kTilePts; p += blockDim.x) {
+    const double v = tile[p];
+    if (v == 0.0) // adding zero is the identity; skip the atomic
+      continue;
+    const int ix = bx + p % kTile;
+    const int iy = by + (p / kTile) % kTile;
+    const int iz = bz + p / (kTile * kTile);
+    if (ix >= n || iy >= n || iz >= n)
+      continue;
+    atomicAdd(&rho[(static_cast<size_t>(iz) * n + iy) * n + ix], v);
+  }
+}
 
 __global__ void eval_values_kernel(const lcao::Orbital* __restrict__ orbs,
                                    const int n, const double h,
@@ -104,14 +209,55 @@ __global__ void triad_kernel(const size_t n, const double* __restrict__ a,
     c[i] = a[i] + s * b[i];
 }
 
+// Largest sub-tile count over groups; sizes the tiled launch's x dim.
+int max_group_tiles(const lcao::Model& m, const std::vector<int>& groups) {
+  const int n = m.grid.n;
+  const double h = m.grid.cell / n;
+  int max_tiles = 0;
+  for (size_t gi = 0; gi + 1 < groups.size(); ++gi) {
+    int lo[3] = {n, n, n}, hi[3] = {-1, -1, -1};
+    for (int j = groups[gi]; j < groups[gi + 1]; ++j) {
+      const lcao::Orbital& o = m.orbitals[j];
+      const double c[3] = {o.cx, o.cy, o.cz};
+      for (int d = 0; d < 3; ++d) {
+        lo[d] = std::min(lo[d],
+                         std::max(0, static_cast<int>((c[d] - o.r_cut) / h)));
+        hi[d] = std::max(
+            hi[d], std::min(n - 1, static_cast<int>((c[d] + o.r_cut) / h)));
+      }
+    }
+    int nt = 1;
+    for (int d = 0; d < 3; ++d)
+      nt *= hi[d] >= lo[d] ? (hi[d] - lo[d]) / kTile + 1 : 0;
+    max_tiles = std::max(max_tiles, nt);
+  }
+  return max_tiles;
+}
+
 // Owns all device state for one model; the density pass can then be re-run
 // (warmup + timed reps) without further host<->device traffic.
 class DensityRunner {
 public:
-  explicit DensityRunner(const lcao::Model& m)
+  explicit DensityRunner(const lcao::Model& m, int orbs_per_atom = 16)
       : n_(m.grid.n), n_grid_(m.grid.n * m.grid.n * m.grid.n),
         n_orb_(static_cast<int>(m.orbitals.size())),
-        h_(m.grid.cell / m.grid.n) {
+        h_(m.grid.cell / m.grid.n), orbs_per_atom_(orbs_per_atom) {
+    if (orbs_per_atom_ < 1 || orbs_per_atom_ > kMaxStagedOrbs)
+      throw std::invalid_argument("orbs_per_atom out of staged range");
+    if (n_orb_ % orbs_per_atom_ != 0)
+      throw std::invalid_argument("n_orb not a multiple of orbs_per_atom");
+    for (int a = 0; a <= n_orb_; a += orbs_per_atom_)
+      groups_atom_.push_back(a);
+    groups_shell_ = lcao::shell_groups(m);
+    for (const std::vector<int>& g : {groups_atom_, groups_shell_}) {
+      if (static_cast<int>(g.size() - 1) > 65535)
+        throw std::invalid_argument("group count exceeds the y-dim limit");
+      for (size_t i = 0; i + 1 < g.size(); ++i)
+        if (g[i + 1] - g[i] > kMaxStagedOrbs)
+          throw std::invalid_argument("orbital group exceeds staged limit");
+    }
+    atom_max_tiles_ = max_group_tiles(m, groups_atom_);
+    shell_max_tiles_ = max_group_tiles(m, groups_shell_);
     LCG_CUDA_CHECK(cudaMalloc(&orbs_, sizeof(lcao::Orbital) * n_orb_));
     LCG_CUDA_CHECK(cudaMalloc(&rho_, sizeof(double) * n_grid_));
     LCG_CUDA_CHECK(
@@ -119,6 +265,13 @@ public:
     LCG_CUDA_CHECK(cudaMemcpy(orbs_, m.orbitals.data(),
                               sizeof(lcao::Orbital) * n_orb_,
                               cudaMemcpyHostToDevice));
+    const auto up_groups = [](const std::vector<int>& g, int** dst) {
+      LCG_CUDA_CHECK(cudaMalloc(dst, g.size() * sizeof(int)));
+      LCG_CUDA_CHECK(cudaMemcpy(*dst, g.data(), g.size() * sizeof(int),
+                                cudaMemcpyHostToDevice));
+    };
+    up_groups(groups_atom_, &d_groups_atom_);
+    up_groups(groups_shell_, &d_groups_shell_);
     LCG_CUDA_CHECK(cudaEventCreate(&ev0_));
     LCG_CUDA_CHECK(cudaEventCreate(&ev1_));
   }
@@ -127,6 +280,8 @@ public:
     cudaFree(orbs_);
     cudaFree(rho_);
     cudaFree(V_);
+    cudaFree(d_groups_atom_);
+    cudaFree(d_groups_shell_);
     cudaEventDestroy(ev0_);
     cudaEventDestroy(ev1_);
   }
@@ -140,6 +295,20 @@ public:
     LCG_CUDA_CHECK(cudaEventRecord(ev0_));
     if (mode == lcao::GpuMode::Fused) {
       fused_scatter_kernel<<<dim3(bx, n_orb_), kBlock>>>(orbs_, n_, h_, rho_);
+      LCG_CUDA_CHECK(cudaGetLastError());
+    } else if (mode == lcao::GpuMode::Tiled ||
+               mode == lcao::GpuMode::TiledShell) {
+      const bool shell = mode == lcao::GpuMode::TiledShell;
+      tiled_scatter_kernel<<<dim3(std::max(1, shell ? shell_max_tiles_
+                                                    : atom_max_tiles_),
+                                  static_cast<unsigned>(
+                                      (shell ? groups_shell_.size()
+                                             : groups_atom_.size()) -
+                                      1)),
+                             kBlock>>>(orbs_,
+                                       shell ? d_groups_shell_
+                                             : d_groups_atom_,
+                                       n_, h_, rho_);
       LCG_CUDA_CHECK(cudaGetLastError());
     } else {
       for (int base = 0; base < n_orb_; base += kChunk) {
@@ -170,6 +339,11 @@ public:
 private:
   int n_, n_grid_, n_orb_;
   double h_;
+  int orbs_per_atom_ = 16;
+  std::vector<int> groups_atom_, groups_shell_;
+  int atom_max_tiles_ = 0, shell_max_tiles_ = 0;
+  int* d_groups_atom_ = nullptr;
+  int* d_groups_shell_ = nullptr;
   lcao::Orbital* orbs_ = nullptr;
   double* rho_ = nullptr;
   double* V_ = nullptr;
@@ -180,13 +354,15 @@ private:
 
 namespace lcao {
 
-GpuDensityResult density_gpu(const Model& m, GpuMode mode) {
-  DensityRunner runner(m);
+GpuDensityResult density_gpu(const Model& m, GpuMode mode,
+                             int orbs_per_atom) {
+  DensityRunner runner(m, orbs_per_atom);
   return runner.run(mode, true);
 }
 
-GpuBenchResult bench_density_gpu(const Model& m, GpuMode mode, int n_reps) {
-  DensityRunner runner(m);
+GpuBenchResult bench_density_gpu(const Model& m, GpuMode mode, int n_reps,
+                                 int orbs_per_atom) {
+  DensityRunner runner(m, orbs_per_atom);
   runner.run(mode, false); // warmup, untimed
   std::vector<double> times;
   times.reserve(n_reps);
