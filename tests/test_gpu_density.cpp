@@ -9,13 +9,16 @@
 // Grid coverage: 16^3 and 33^3 give multi-block launches with a partial
 // last block; 64^3 with 64 atoms (1024 orbitals) is benchmark class. For
 // the tiled path, 16^3/33^3 also exercise tiles overhanging the grid edge
-// and bounding boxes larger than one sub-tile.
+// and bounding boxes larger than one sub-tile. 6^3 puts grid points exactly
+// on atom centers (h = 2, centers at odd multiples of h), so every mode
+// exercises the r = 0 branch of orbital_value.
 
 #include "lcao/cpu_ref.hpp"
 #include "lcao/grid_gpu.hpp"
 
 #include <cmath>
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -53,9 +56,9 @@ int main() {
     struct Config {
       int atoms_per_side, grid_n;
     };
-    const Config configs[3] = {{2, 16}, {2, 33}, {4, 64}};
+    const Config configs[4] = {{2, 6}, {2, 16}, {2, 33}, {4, 64}};
     // Measured on this machine: all GPU modes vs CPU <= 1.4e-15 across the
-    // three configs, on max densities up to 1.4; per-point overlap is a
+    // configs, on max densities up to 1.4; per-point overlap is a
     // handful of orbitals, so atomic ordering adds little to the exp
     // difference. Tolerance 1e-11 leaves four decades.
     const double tol = 1e-11;
@@ -105,6 +108,26 @@ int main() {
       std::snprintf(buf, sizeof buf, "linf = %.3e", dtst);
       check(dtst < tol, "tiled-shell vs tiled GPU", buf);
     }
+
+    // Parameter contract: degenerate rep counts must throw, not read an
+    // empty timing vector.
+    const lcao::Model small = lcao::make_synthetic_model(1, 8, 0x5eed3u);
+    bool threw = false;
+    try {
+      (void)lcao::bench_density_gpu(small, lcao::GpuMode::Fused, 0);
+    } catch (const std::invalid_argument&) {
+      threw = true;
+    }
+    check(threw, "bench_density_gpu rejects n_reps = 0",
+          threw ? "invalid_argument thrown" : "no exception");
+    threw = false;
+    try {
+      (void)lcao::bench_triad_fp64(0);
+    } catch (const std::invalid_argument&) {
+      threw = true;
+    }
+    check(threw, "bench_triad_fp64 rejects n_reps = 0",
+          threw ? "invalid_argument thrown" : "no exception");
   } catch (const std::exception& e) {
     std::fprintf(stderr, "test_gpu_density failed: %s\n", e.what());
     return 1;

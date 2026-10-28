@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <random>
+#include <stdexcept>
 
 namespace lcao {
 
@@ -85,6 +86,8 @@ std::uint64_t count_group_box_pairs(const Model& m,
 }
 
 std::uint64_t count_box_pairs(const Model& m, int orbs_per_atom) {
+  if (orbs_per_atom < 1)
+    throw std::invalid_argument("orbs_per_atom must be >= 1");
   std::vector<int> groups;
   for (size_t a = 0; a <= m.orbitals.size(); a += orbs_per_atom)
     groups.push_back(static_cast<int>(a));

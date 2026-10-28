@@ -10,7 +10,7 @@
 #include "lcao/grid_gpu.hpp"
 
 #ifndef LCG_TILE_SIDE
-#define LCG_TILE_SIDE 16
+#define LCG_TILE_SIDE 8
 #endif
 
 #include <cmath>

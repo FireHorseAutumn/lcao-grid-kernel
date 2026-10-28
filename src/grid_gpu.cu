@@ -49,7 +49,7 @@
 namespace {
 
 #ifndef LCG_TILE_SIDE
-#define LCG_TILE_SIDE 16
+#define LCG_TILE_SIDE 8
 #endif
 
 constexpr int kBlock = 256;
@@ -362,6 +362,8 @@ GpuDensityResult density_gpu(const Model& m, GpuMode mode,
 
 GpuBenchResult bench_density_gpu(const Model& m, GpuMode mode, int n_reps,
                                  int orbs_per_atom) {
+  if (n_reps < 1)
+    throw std::invalid_argument("n_reps must be >= 1");
   DensityRunner runner(m, orbs_per_atom);
   runner.run(mode, false); // warmup, untimed
   std::vector<double> times;
@@ -379,6 +381,8 @@ GpuBenchResult bench_density_gpu(const Model& m, GpuMode mode, int n_reps,
 }
 
 TriadBenchResult bench_triad_fp64(int n_reps) {
+  if (n_reps < 1)
+    throw std::invalid_argument("n_reps must be >= 1");
   const size_t n = size_t{64} << 20; // 64M doubles = 512 MiB per array
   double *a = nullptr, *b = nullptr, *c = nullptr;
   LCG_CUDA_CHECK(cudaMalloc(&a, sizeof(double) * n));

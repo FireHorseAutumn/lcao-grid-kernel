@@ -76,20 +76,24 @@ rejects the installed g++-16 headers (same pattern as
   32-point Gauss-Legendre(theta) x 64-point uniform(phi) quadrature:
   max |diag - 1| = 5.8e-15, max |offdiag| = 3.6e-15.
 - **CPU reference** (`test_cpu_density`): single isolated s, p_z, p_x, d_z2
-  orbitals match hand-derived closed-form densities at linf <= 6.9e-18;
-  the naive evaluator agrees bitwise with a box-free point-major
-  accumulation on a full synthetic model; the in-cutoff pair counter
-  matches a brute-force count exactly.
-- **GPU** (`test_gpu_density`), FP64 vs the CPU oracle: at 16^3/8-atoms,
-  33^3/8-atoms (multi-block, partial last block; the tiled paths also get
-  tiles overhanging the grid edge and boxes larger than one sub-tile), and
+  orbitals match hand-derived closed-form densities at linf <= 7e-18;
+  an orbital centered exactly on a grid point (the r = 0 branch) gives
+  R(0)*Y_00 for s and exactly 0 for p; the naive evaluator agrees bitwise
+  with a box-free point-major accumulation on a full synthetic model; the
+  in-cutoff pair counter matches a brute-force count exactly.
+- **GPU** (`test_gpu_density`), FP64 vs the CPU oracle: at 6^3/8-atoms
+  (grid points land exactly on atom centers, exercising the r = 0 branch
+  on every mode), 16^3/8-atoms, 33^3/8-atoms (multi-block, partial last
+  block; the tiled paths also get tiles overhanging the grid edge and
+  boxes larger than one sub-tile), and
   64^3/64-atoms (1024 orbitals, benchmark class) — all four GPU modes vs
   CPU linf <= 1.4e-15, fused vs unfused linf <= 1.2e-15, tiled vs fused
   linf <= 5.6e-16, tiled-shell vs tiled linf <= 4.5e-16, on max
   densities up to 1.4. Per-point orbital overlap is a handful of terms, so
   the atomic ordering adds little to the host/device `exp` difference.
   Tolerance in the test is 1e-11, four decades above the measured worst
-  case.
+  case. The bench entry points reject n_reps < 1, and
+  `count_box_pairs` rejects a zero group stride.
 
 ## Measured
 

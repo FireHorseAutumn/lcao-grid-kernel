@@ -7,6 +7,7 @@
 
 #include <cmath>
 #include <cstdio>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -134,6 +135,41 @@ int main() {
                 static_cast<unsigned long long>(boxed),
                 static_cast<unsigned long long>(brute));
   check(boxed == brute, "count_pairs bounding box exactness", buf);
+
+  // ---- orbital centered exactly on a grid point: the r = 0 branch ----
+  // Grid{4, 4.0} puts point (0,0,0) at (0.5, 0.5, 0.5); an orbital centered
+  // there is evaluated at r = 0, where the direction is undefined. l = 0 must
+  // give R(0) * Y_00; l > 0 gives exactly 0 since R ~ r^l.
+  {
+    lcao::Model point_model;
+    point_model.grid = lcao::Grid{4, 4.0};
+    const double a0 = 1.1, a1 = 0.4, c0 = 0.9, c1 = -0.3, w = 1.7;
+    point_model.orbitals.push_back(
+        lcao::Orbital{0.5, 0.5, 0.5, 0, 0, a0, a1, c0, c1, w, 2.0});
+    const std::vector<double> rho0 = lcao::density_cpu_naive(point_model);
+    const double chi0 = (c0 + c1) * 0.28209479177387814347; // R(0) * Y_00
+    const double d0 = std::abs(rho0[0] - w * chi0 * chi0);
+    std::snprintf(buf, sizeof buf, "rho(center) = %.17g, closed form = %.17g",
+                  rho0[0], w * chi0 * chi0);
+    check(d0 < 1e-14, "s orbital evaluated at r = 0", buf);
+
+    point_model.orbitals[0].l = 1;
+    const std::vector<double> rho1 = lcao::density_cpu_naive(point_model);
+    std::snprintf(buf, sizeof buf, "rho(center) = %.3e", rho1[0]);
+    check(rho1[0] == 0.0, "p orbital at r = 0 is exactly zero", buf);
+  }
+
+  // ---- count_box_pairs must reject a zero stride (infinite loop) ----
+  {
+    bool threw = false;
+    try {
+      (void)lcao::count_box_pairs(model, 0);
+    } catch (const std::invalid_argument&) {
+      threw = true;
+    }
+    check(threw, "count_box_pairs rejects orbs_per_atom = 0",
+          threw ? "invalid_argument thrown" : "no exception");
+  }
 
   if (failures) {
     std::printf("%d check(s) FAILED\n", failures);
