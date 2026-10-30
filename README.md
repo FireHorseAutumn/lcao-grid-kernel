@@ -144,34 +144,37 @@ What the numbers say:
   are disjoint. Wide multi-rep swings of this size appeared on both modes
   and on repeated sweeps — machine variance, not a mode effect.
 
-### Tiled paths (2026-10-26 sweep)
+### Tiled paths (2026-10-26 sweep; pinned rerun 2026-10-30)
 
-Same protocol as above, all four modes in one session, tile side 8. Triad
-this session: 327.2 GB/s [326.6, 327.7] — vs 269.3 GB/s on 2026-10-24, so
-absolute times shifted between sweeps; only within-sweep ratios are
-comparable. Ratios are against the fused median; u/ts is vs unfused.
+Same protocol as above, all four modes in one session, tile side 8. The
+table below is the governor-pinned idle-machine rerun of 2026-10-30
+(performance governor, triad 348.2 GB/s [347.1, 349.3]); the original
+2026-10-26 evening sweep (triad 327.2 GB/s) agrees with it to the second
+decimal on every ratio — the earliest 2026-10-24 sweep (triad 269.3 GB/s)
+is the one that drifted. Ratios are against the fused median; u/ts is vs
+unfused.
 
 8 atoms, 128 orbitals (in-cutoff 38.5% of pairs; atom boxes visit 81–83%,
 shell boxes 55–58%):
 
 | grid | unfused ms | fused ms | tiled ms | tiled-shell ms | t/f | ts/f | u/ts |
 |--:|--:|--:|--:|--:|--:|--:|--:|
-| 32 | 3.871 [3.857, 3.876] | 3.799 [3.795, 3.812] | 4.044 [3.953, 4.106] | 3.670 [3.610, 3.723] | 0.94x | 1.04x | 1.05x |
-| 48 | 12.845 [12.840, 12.872] | 12.708 [12.703, 12.722] | 11.666 [11.586, 11.699] | 10.964 [10.925, 10.985] | 1.09x | 1.16x | 1.17x |
-| 64 | 28.700 [28.685, 28.709] | 28.299 [28.282, 28.336] | 26.365 [26.296, 26.391] | 24.772 [24.723, 24.797] | 1.07x | 1.14x | 1.16x |
-| 96 | 89.314 [89.294, 89.362] | 87.594 [87.586, 87.630] | 82.716 [82.688, 82.740] | 78.724 [78.704, 78.764] | 1.06x | 1.11x | 1.13x |
-| 128 | 204.680 [203.848, 204.711] | 200.323 [200.304, 200.349] | 193.492 [193.473, 193.548] | 183.136 [183.114, 183.167] | 1.04x | 1.09x | 1.12x |
+| 32 | 3.865 [3.858, 3.872] | 3.796 [3.792, 3.801] | 4.070 [4.016, 4.116] | 3.694 [3.642, 3.750] | 0.93x | 1.03x | 1.05x |
+| 48 | 12.847 [12.845, 12.850] | 12.698 [12.694, 12.702] | 11.645 [11.606, 11.727] | 10.945 [10.910, 10.974] | 1.09x | 1.16x | 1.17x |
+| 64 | 28.709 [28.701, 28.719] | 28.273 [28.268, 28.278] | 26.322 [26.287, 26.376] | 24.748 [24.709, 24.775] | 1.07x | 1.14x | 1.16x |
+| 96 | 89.313 [89.303, 89.334] | 87.571 [87.560, 87.583] | 82.711 [82.661, 82.757] | 78.709 [78.695, 78.719] | 1.06x | 1.11x | 1.13x |
+| 128 | 204.680 [204.659, 204.699] | 200.312 [200.305, 200.337] | 193.507 [193.484, 193.520] | 183.145 [183.133, 183.174] | 1.04x | 1.09x | 1.12x |
 
 64 atoms, 1024 orbitals (in-cutoff 7.6% of pairs; atom boxes visit
 19.5–21.1%, shell boxes 13.0–14.2%):
 
 | grid | unfused ms | fused ms | tiled ms | tiled-shell ms | t/f | ts/f | u/ts |
 |--:|--:|--:|--:|--:|--:|--:|--:|
-| 32 | 14.215 [14.191, 14.260] | 13.372 [13.368, 13.384] | 9.211 [9.074, 9.516] | 8.524 [8.371, 8.624] | 1.45x | 1.57x | 1.67x |
-| 48 | 43.850 [43.827, 44.045] | 42.137 [42.130, 42.145] | 24.371 [24.305, 24.585] | 22.999 [22.954, 23.080] | 1.73x | 1.83x | 1.91x |
-| 64 | 88.929 [88.921, 88.954] | 84.007 [83.998, 84.017] | 53.527 [53.404, 53.630] | 50.829 [50.791, 50.851] | 1.57x | 1.65x | 1.75x |
-| 96 | 277.173 [277.151, 278.058] | 258.284 [258.268, 258.322] | 161.496 [161.466, 161.573] | 153.241 [153.221, 153.258] | 1.60x | 1.69x | 1.81x |
-| 128 | 632.742 [632.683, 633.923] | 586.328 [586.260, 586.420] | 360.124 [360.101, 360.147] | 343.935 [343.915, 343.967] | 1.63x | 1.70x | 1.84x |
+| 32 | 14.210 [14.192, 14.227] | 13.366 [13.359, 13.368] | 9.258 [9.003, 9.428] | 8.484 [8.396, 8.629] | 1.44x | 1.58x | 1.67x |
+| 48 | 44.010 [43.994, 44.030] | 42.138 [42.130, 42.143] | 24.368 [24.245, 24.525] | 22.994 [22.907, 23.095] | 1.73x | 1.83x | 1.91x |
+| 64 | 89.028 [89.017, 89.060] | 84.018 [84.012, 84.023] | 53.485 [53.414, 53.616] | 50.824 [50.754, 50.849] | 1.57x | 1.65x | 1.75x |
+| 96 | 277.233 [277.206, 277.267] | 258.332 [258.307, 258.376] | 161.522 [161.462, 161.595] | 153.253 [153.205, 153.277] | 1.60x | 1.69x | 1.81x |
+| 128 | 632.815 [632.740, 632.911] | 586.316 [586.299, 586.357] | 360.192 [360.156, 360.218] | 344.016 [343.990, 344.052] | 1.63x | 1.70x | 1.84x |
 
 What the tiled numbers say:
 
@@ -179,13 +182,13 @@ What the tiled numbers say:
   only 7.6% of pairs at 64 atoms — the cost is the per-pair visit (index
   math, parameter load, r^2 test) over the full orbital x grid product, not
   the evaluation. Tiled tests that directly: visiting only bounding-box
-  pairs (19.5–21.1% at 64 atoms) wins 1.45–1.73x over fused, spreads
+  pairs (19.5–21.1% at 64 atoms) wins 1.44–1.73x over fused, spreads
   disjoint at every 64-atom size.
 - Per-shell boxes cut the union-box waste: visited pairs drop to
   13.0–14.2% (the remainder is the sphere-in-box factor, pi/6 ~ 0.52 of
   each shell box, against the 7.6% in-cutoff floor). Tiled-shell is the
-  best path at every measured size on both atom counts: 1.04–1.16x over
-  fused at 8 atoms, 1.57–1.83x at 64 atoms, 1.91x peak vs unfused.
+  best path at every measured size on both atom counts: 1.03–1.16x over
+  fused at 8 atoms, 1.58–1.83x at 64 atoms, 1.91x peak vs unfused.
 - The win tracks the visit-count reduction, not the privatization: global
   atomic traffic drops by the group size (one flush per tile point) but
   FP64 atomics were never measurably hot at these overlap densities.
@@ -194,18 +197,19 @@ What the tiled numbers say:
   past that margin are decisive): side 8 vs 16 wins or ties everywhere,
   decisively where boxes are small — the 32^3/8-atom atom-box loss with
   side 16 (0.59x, parallelism starved at atoms x tiles blocks) shrinks to
-  0.94x with side 8, and the shell variant flips it to a 1.04x win. Side
+  0.93x with side 8 (pinned rerun; 0.94x unpinned), and the shell variant
+  flips it to a 1.03x win. Side
   8 is the committed default (`LCG_TILE_SIDE` in CMake).
-- Remaining losing cell: atom-box tiled at 32^3/8 atoms, 0.94x with
+- Remaining losing cell: atom-box tiled at 32^3/8 atoms, 0.93x with
   disjoint spreads — boxes span the whole cell there, so tiling pays
   per-tile fixed costs for no visit reduction. The shell variant already
   covers it.
 
 Raw per-rep timings and full metadata (device, clocks, driver, runtime,
 seed, timestamp, toolchain) are in
-[`data/lcao_grid_bench.json`](data/lcao_grid_bench.json). Absolute times
-vary with machine state; the table reports medians and observed spreads of
-one sweep, not a stable speedup distribution.
+[`data/lcao_grid_bench.json`](data/lcao_grid_bench.json) — the pinned
+2026-10-30 sweep. The table reports medians and observed spreads of one
+pinned sweep, not a stable speedup distribution.
 
 Throughput units: **Mgridpts/s** = grid points per second of device time;
 **Geval/s** = in-cutoff (orbital, grid-point) evaluations per second, the
@@ -219,10 +223,11 @@ density, not a tuning choice.
 CPU reference, GPU unfused/fused/tiled/tiled-shell kernels, correctness
 gates, and measured sweeps complete 2026-10-26; suite green 3/3. The
 tiled-shell path (per-shell bounding boxes, tile side 8) is the leader at
-every measured size: 1.04–1.16x over fused at 8 atoms, 1.57–1.83x at 64
-atoms. Natural next gates: closing the remaining sphere-in-box waste
-(13–14% visited vs 7.6% in-cutoff at 64 atoms), block-size tuning, and a
-governor-pinned rerun to lift the machine-state caveat.
+every measured size: 1.03–1.16x over fused at 8 atoms, 1.58–1.83x at 64
+atoms. The governor-pinned rerun landed 2026-10-30 and confirmed the
+2026-10-26 sweep to the second decimal on every ratio; the machine-state
+caveat is lifted. Natural next gates: closing the remaining sphere-in-box
+waste (13–14% visited vs 7.6% in-cutoff at 64 atoms) and block-size tuning.
 
 Related: [kpm-tightbinding](https://github.com/FireHorseAutumn/kpm-tightbinding),
 [pauli-hamiltonian](https://github.com/FireHorseAutumn/pauli-hamiltonian).
